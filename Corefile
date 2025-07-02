@@ -1,0 +1,42 @@
+# CoreDNS configuration file (Corefile)
+
+# Default zone - handles all DNS queries
+. {
+    # Forward all external DNS queries to public DNS servers
+    forward . 8.8.8.8 8.8.4.4 1.1.1.1
+    
+    # Enable DNS caching for better performance
+    cache 30
+    
+    # Log DNS queries for debugging
+    log
+    
+    # Return NXDOMAIN for empty queries
+    errors
+    
+    # Health check endpoint
+    health :8080
+    
+    # Prometheus metrics (optional)
+    prometheus :9153
+    
+    # Load balancing for multiple upstream servers
+    loadbalance
+}
+
+# Internal network zone for container names
+proxy-network {
+    # Resolve internal container names
+    hosts {
+        172.20.0.10 dns-server
+        # Squid proxy will get dynamic IP, but Docker handles this
+        fallthrough
+    }
+    
+    # Forward to default resolver for anything not in hosts
+    forward . 8.8.8.8 8.8.4.4
+    
+    cache 30
+    log
+    errors
+}
