@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # DNS server for the proxy network
+  dns-server:
+    image: coredns/coredns:latest
+    container_name: dns-server
+    volumes:
+      - ./Corefile:/etc/coredns/Corefile:ro
+    networks:
+      proxy-network:
+        ipv4_address: 172.20.0.10
+      default:  # Internet access for DNS resolution
+    restart: unless-stopped
+    command: ["-conf", "/etc/coredns/Corefile"]
+
+  # Squid proxy server
+  squid-proxy:
+    image: ubuntu/squid:latest
+    container_name: squid-proxy
+    ports:
+      - "3128:3128"
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+      - ./squid-logs:/var/log/squid
+    networks:
+      - proxy-network
+      - default  # Access to internet via default Docker network
+    restart: unless-stopped
+
+  # Your application under test - starts downloading immediately
+  app-under-test:
+    # Replace with your actual image
+    image: your-app-image:latest
+    container_name: app-under-test
+    depends_on:
+      - squid-proxy
+      - dns-server
+    environment:
+      # Proxy environment variables for HTTP/HTTPS
+      - HTTP_PROXY=http://squid-proxy:3128
+      - HTTPS_PROXY=http://squid-proxy:3128
+      - http_proxy=http://squid-proxy:3128
+      - https_proxy=http://squid-proxy:3128
+      # WebSocket proxy support
+      - WSS_PROXY=http://squid-proxy:3128
+      - wss_proxy=http://squid-proxy:3128
+      - NO_PROXY=localhost,127.0.0.1,squid-proxy,dns-server
+      - no_proxy=localhost,127.0.0.1,squid-proxy,dns-server
+    networks:
+      - proxy-network
+    dns:
+      - 172.20.0.10  # Use our internal DNS server
+    restart: unless-stopped
+    # App starts downloading immediately - no client interaction needed
+    # Add any other configuration your app needs
+    # ports:
+    #   - "8080:8080"
+    # volumes:
+    #   - ./app-config:/app/config
+
+  # Test client to verify proxy functionality
+  test-client:
+    image: curlimages/curl:latest
+    container_name: test-client
+    depends_on:
+      - squid-proxy
+      - dns-server
+    environment:
+      - HTTP_PROXY=http://squid-proxy:3128
+      - HTTPS_PROXY=http://squid-proxy:3128
+    networks:
+      - proxy-network
+    dns:
+      - 172.20.0.10  # Use our internal DNS server
+    # Keep container running for manual testing
+    command: sleep 3600
+
+networks:
+  proxy-network:
+    driver: bridge
+    internal: false  # Allow internet access for squid-proxy and dns-server
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+  # Default network is automatically created and has internet access
+
+volumes:
+  squid-logs:
